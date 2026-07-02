@@ -78,18 +78,28 @@ def train_detection(model_name, train_path, dev_path, test_path, epochs=3, batch
     model = FallacyDetectionModel(model_name, num_labels=len(label_map))
     trainer = Trainer(model, train_loader, dev_loader)
     
+    checkpoint_path = f"models/detection_{model_name.split('/')[-1]}.pt"
+    
     for epoch in range(epochs):
         train_loss = trainer.train_epoch()
+        
+        # Defensive Checkpoint: Save weights immediately after training epoch finishes
+        trainer.save_model(checkpoint_path)
+        
+        # Clear GPU/MPS memory cache before evaluation
+        if trainer.device == "mps":
+            torch.mps.empty_cache()
+            
         val_loss, val_f1, val_report = trainer.evaluate()
         print(f"Epoch {epoch+1}/{epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Val F1: {val_f1:.4f}")
         print(val_report)
         
     print("Testing on Test Set:")
+    if trainer.device == "mps":
+        torch.mps.empty_cache()
     test_loss, test_f1, test_report = trainer.evaluate(test_loader)
     print(f"Test Loss: {test_loss:.4f} | Test F1: {test_f1:.4f}")
     print(test_report)
-    
-    trainer.save_model(f"models/detection_{model_name.split('/')[-1]}.pt")
 
 def train_generation(model_name, train_path, dev_path, test_path, epochs=3, batch_size=8):
     from src.data_loader import get_generation_dataloaders
@@ -102,8 +112,17 @@ def train_generation(model_name, train_path, dev_path, test_path, epochs=3, batc
     model = FallacyGenerationModel(model_name, model_type="causal")
     trainer = Trainer(model, train_loader, dev_loader)
     
+    checkpoint_path = f"models/generation_{model_name.split('/')[-1]}.pt"
+    
     for epoch in range(epochs):
         train_loss = trainer.train_epoch()
+        
+        # Defensive Checkpoint
+        trainer.save_model(checkpoint_path)
+        
+        if trainer.device == "mps":
+            torch.mps.empty_cache()
+            
         val_loss = 0
         model.model.eval()
         with torch.no_grad():
@@ -116,5 +135,3 @@ def train_generation(model_name, train_path, dev_path, test_path, epochs=3, batc
         
         avg_val_loss = val_loss / len(dev_loader)
         print(f"Epoch {epoch+1}/{epochs} | Train Loss: {train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
-        
-    trainer.save_model(f"models/generation_{model_name.split('/')[-1]}.pt")
