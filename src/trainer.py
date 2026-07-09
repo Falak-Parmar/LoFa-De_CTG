@@ -17,10 +17,16 @@ class Trainer:
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.device = device
-        # Lower learning rate to 1e-5 for DeBERTa stability. Use PythonAdamW on MPS to bypass PyTorch kernel bugs.
+        # Lower learning rate to 1e-5 for stability. Use Adafactor on MPS to bypass PyTorch AdamW kernel bugs at full C++ speed.
         if self.device == "mps":
-            from src.optimizer import PythonAdamW
-            self.optimizer = PythonAdamW(self.model.parameters(), lr=1e-5)
+            from transformers import Adafactor
+            self.optimizer = Adafactor(
+                self.model.parameters(),
+                lr=1e-5,
+                scale_parameter=False,
+                relative_step=False,
+                warmup_init=False
+            )
         else:
             self.optimizer = AdamW(self.model.parameters(), lr=1e-5)
 
