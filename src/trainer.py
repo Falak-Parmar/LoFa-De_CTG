@@ -120,11 +120,14 @@ def train_generation(model_name, train_path, dev_path, test_path, epochs=3, batc
     from src.data_loader import get_generation_dataloaders
     from src.model import FallacyGenerationModel
     
+    # Dynamically resolve model type (seq2seq for T5, causal for GPT-2)
+    model_type = "seq2seq" if "t5" in model_name.lower() else "causal"
+    
     train_loader, dev_loader, test_loader = get_generation_dataloaders(
-        train_path, dev_path, test_path, model_name, batch_size=batch_size
+        train_path, dev_path, test_path, model_name, batch_size=batch_size, model_type=model_type
     )
     
-    model = FallacyGenerationModel(model_name, model_type="causal")
+    model = FallacyGenerationModel(model_name, model_type=model_type)
     trainer = Trainer(model, train_loader, dev_loader, device=device)
     
     checkpoint_path = f"models/generation_{model_name.split('/')[-1]}.pt"

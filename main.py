@@ -88,7 +88,8 @@ def main():
             if tokenizer.pad_token is None:
                 tokenizer.pad_token = tokenizer.eos_token
             
-            model = FallacyGenerationModel(args.model)
+            model_type = "seq2seq" if "t5" in args.model.lower() else "causal"
+            model = FallacyGenerationModel(args.model, model_type=model_type)
             model_path = f"models/generation_{args.model.split('/')[-1]}.pt"
             if os.path.exists(model_path):
                 model.load_state_dict(torch.load(model_path, map_location="cpu"))
@@ -111,7 +112,11 @@ def main():
             )
             generated_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
             print("-" * 30)
-            print(f"Generated Argument:\n{generated_text.split('Comment: ')[-1]}")
+            if model_type == "causal":
+                generated_comment = generated_text.split('Comment: ')[-1] if 'Comment: ' in generated_text else generated_text
+            else:
+                generated_comment = generated_text
+            print(f"Generated Argument:\n{generated_comment}")
 
 if __name__ == "__main__":
     main()

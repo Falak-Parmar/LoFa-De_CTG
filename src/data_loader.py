@@ -52,10 +52,11 @@ class FallacyGenerationDataset(Dataset):
     Input: Fallacy type + context
     Target: The actual comment
     """
-    def __init__(self, csv_path, tokenizer, max_length=512):
+    def __init__(self, csv_path, tokenizer, max_length=512, model_type="causal"):
         self.df = pd.read_csv(csv_path)
         self.tokenizer = tokenizer
         self.max_length = max_length
+        self.model_type = model_type
         
     def __len__(self):
         return len(self.df)
@@ -64,29 +65,60 @@ class FallacyGenerationDataset(Dataset):
         row = self.df.iloc[idx]
         # Format: Fallacy: <type> | Title: <title> | Parent: <parent> | Comment: <comment>
         input_text = f"Fallacy: {row['fallacy']} | Title: {row['news_title']} | Parent: {row['parent_comment']} | Comment: "
-        target_text = row['comment_text']
+        target_text = str(row['comment_text'])
         
-        # For Causal LM (GPT-2), we often train on the concatenated input+target
-        full_text = input_text + target_text + self.tokenizer.eos_token
-        
-        encoding = self.tokenizer(
-            full_text,
-            truncation=True,
-            padding='max_length',
-            max_length=self.max_length,
-            return_tensors='pt'
-        )
-        
-        # Create labels: we want the model to predict the next token, 
-        # but we can mask out the loss for the prompt part if we want.
-        # For simplicity, we'll just use the full encoding as labels for GPT-2.
-        labels = encoding['input_ids'].clone()
-        
-        return {
-            'input_ids': encoding['input_ids'].flatten(),
-            'attention_mask': encoding['attention_mask'].flatten(),
-            'labels': labels.flatten()
-        }
+        if self.model_type == "causal":
+            # For Causal LM (GPT-2), we train on the concatenated input+target
+            full_text = input_text + target_text + self.tokenizer.eos_token
+            
+            encoding = self.tokenizer(
+                full_text,
+                truncation=True,
+                padding='max_length',
+                max_length=self.max_length,
+                return_tensors='pt'
+            )
+            
+            labels = encoding['input_ids'].clone()
+            
+            # Mask out the prompt tokens in labels with -100 so they are ignored in loss computation
+            prompt_encoding = self.tokenizer(input_text, truncation=True)
+            prompt_len = len(prompt_encoding['input_ids'])
+            labels[0, :prompt_len] = -100
+            
+            # Also mask padding tokens
+            labels[labels == self.tokenizer.pad_token_id] = -100
+            
+            return {
+                'input_ids': encoding['input_ids'].flatten(),
+                'attention_mask': encoding['attention_mask'].flatten(),
+                'labels': labels.flatten()
+            }
+        else:
+            # For Seq2Seq (T5), inputs are encoder inputs and targets are decoder labels
+            inputs = self.tokenizer(
+                input_text,
+                truncation=True,
+                padding='max_length',
+                max_length=self.max_length,
+                return_tensors='pt'
+            )
+            targets = self.tokenizer(
+                target_text,
+                truncation=True,
+                padding='max_length',
+                max_length=self.max_length,
+                return_tensors='pt'
+            )
+            
+            labels = targets['input_ids'].clone()
+            labels[labels == self.tokenizer.pad_token_id] = -100
+            
+            return {
+                'input_ids': inputs['input_ids'].flatten(),
+                'attention_mask': inputs['attention_mask'].flatten(),
+                'labels': labels.flatten()
+            }
 
 def get_dataloaders(train_path, dev_path, test_path, model_name, batch_size=16, max_length=512):
     """
@@ -111,7 +143,7 @@ def get_dataloaders(train_path, dev_path, test_path, model_name, batch_size=16, 
     
     return train_loader, dev_loader, test_loader, label_map
 
-def get_generation_dataloaders(train_path, dev_path, test_path, model_name, batch_size=8, max_length=512):
+def get_generation_dataloaders(train_path, dev_path, test_path, model_name, batch_size=8, max_length=512, model_type="causal"):
     """
     Helper function to create DataLoaders for train, dev, and test splits (Generation).
     """
@@ -119,9 +151,9 @@ def get_generation_dataloaders(train_path, dev_path, test_path, model_name, batc
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    train_dataset = FallacyGenerationDataset(train_path, tokenizer, max_length)
-    dev_dataset = FallacyGenerationDataset(dev_path, tokenizer, max_length)
-    test_dataset = FallacyGenerationDataset(test_path, tokenizer, max_length)
+    train_dataset = FallacyGenerationDataset(train_path, tokenizer, max_length, model_type=model_type)
+    dev_dataset = FallacyGenerationDataset(dev_path, tokenizer, max_length, model_type=model_type)
+    test_dataset = FallacyGenerationDataset(test_path, tokenizer, max_length, model_type=model_type)
     
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     dev_loader = DataLoader(dev_dataset, batch_size=batch_size)
