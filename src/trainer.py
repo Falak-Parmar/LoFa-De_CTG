@@ -21,16 +21,10 @@ class Trainer:
         if class_weights is not None:
             self.class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
             
-        # Lower learning rate to 1e-5 for stability. Use Adafactor on MPS to bypass PyTorch AdamW kernel bugs at full C++ speed.
+        # Lower learning rate to 1e-5 for stability. Use Hybrid PythonAdamW on MPS to bypass PyTorch AdamW kernel bugs.
         if self.device == "mps":
-            from transformers import Adafactor
-            self.optimizer = Adafactor(
-                self.model.parameters(),
-                lr=1e-5,
-                scale_parameter=False,
-                relative_step=False,
-                warmup_init=False
-            )
+            from src.optimizer import PythonAdamW
+            self.optimizer = PythonAdamW(self.model.parameters(), lr=1e-5)
         else:
             self.optimizer = AdamW(self.model.parameters(), lr=1e-5)
 
