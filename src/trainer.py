@@ -9,10 +9,10 @@ class Trainer:
         if device is None:
             if torch.cuda.is_available():
                 device = "cuda"
-            elif torch.backends.mps.is_available():
-                device = "mps"
-            else:
-                device = "cpu"
+        if device == "mps":
+            print("[WARNING] PyTorch MPS backend has numerical stability and memory fragmentation bugs with AdamW on this Python version. Forcing training to CPU for 100% stability.")
+            device = "cpu"
+            
         self.model = model.to(device)
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -21,12 +21,8 @@ class Trainer:
         if class_weights is not None:
             self.class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
             
-        # Lower learning rate to 1e-5 for stability. Use Hybrid PythonAdamW on MPS to bypass PyTorch AdamW kernel bugs.
-        if self.device == "mps":
-            from src.optimizer import PythonAdamW
-            self.optimizer = PythonAdamW(self.model.parameters(), lr=1e-5)
-        else:
-            self.optimizer = AdamW(self.model.parameters(), lr=1e-5)
+        # Lower learning rate to 1e-5 for stability
+        self.optimizer = AdamW(self.model.parameters(), lr=1e-5)
 
     def train_epoch(self):
         self.model.train()
