@@ -5,7 +5,7 @@ from sklearn.metrics import classification_report, f1_score
 import os
 
 class Trainer:
-    def __init__(self, model, train_loader, val_loader, device=None):
+    def __init__(self, model, train_loader, val_loader, device=None, class_weights=None):
         if device is None:
             if torch.cuda.is_available():
                 device = "cuda"
@@ -17,6 +17,10 @@ class Trainer:
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.device = device
+        self.class_weights = None
+        if class_weights is not None:
+            self.class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
+            
         # Lower learning rate to 1e-5 for stability. Use Adafactor on MPS to bypass PyTorch AdamW kernel bugs at full C++ speed.
         if self.device == "mps":
             from transformers import Adafactor
@@ -39,8 +43,12 @@ class Trainer:
             attention_mask = batch['attention_mask'].to(self.device)
             labels = batch['labels'].to(self.device)
             
-            outputs = self.model(input_ids, attention_mask=attention_mask, labels=labels)
-            loss = outputs.loss
+            if self.class_weights is not None:
+                outputs = self.model(input_ids, attention_mask=attention_mask)
+                loss = torch.nn.functional.cross_entropy(outputs.logits, labels, weight=self.class_weights)
+            else:
+                outputs = self.model(input_ids, attention_mask=attention_mask, labels=labels)
+                loss = outputs.loss
             
             # Check for NaN immediately
             if torch.isnan(loss):
@@ -70,8 +78,12 @@ class Trainer:
                 attention_mask = batch['attention_mask'].to(self.device)
                 labels = batch['labels'].to(self.device)
                 
-                outputs = self.model(input_ids, attention_mask=attention_mask, labels=labels)
-                loss = outputs.loss
+                if self.class_weights is not None:
+                    outputs = self.model(input_ids, attention_mask=attention_mask)
+                    loss = torch.nn.functional.cross_entropy(outputs.logits, labels, weight=self.class_weights)
+                else:
+                    outputs = self.model(input_ids, attention_mask=attention_mask, labels=labels)
+                    loss = outputs.loss
                 total_loss += loss.item()
                 
                 preds = torch.argmax(outputs.logits, dim=1)
@@ -91,13 +103,30 @@ class Trainer:
 def train_detection(model_name, train_path, dev_path, test_path, epochs=3, batch_size=16, device=None):
     from src.data_loader import get_dataloaders
     from src.model import FallacyDetectionModel
+    import numpy as np
+    from collections import Counter
     
     train_loader, dev_loader, test_loader, label_map = get_dataloaders(
         train_path, dev_path, test_path, model_name, batch_size=batch_size
     )
     
+    # Calculate inverse-frequency class weights for cross-entropy loss balancing
+    fallacies = train_loader.dataset.df['fallacy'].values
+    train_labels = [label_map[f] for f in fallacies]
+    label_counts = Counter(train_labels)
+    
+    num_classes = len(label_map)
+    total_samples = len(train_labels)
+    class_weights = np.zeros(num_classes)
+    for label_idx in range(num_classes):
+        count = label_counts.get(label_idx, 1)
+        class_weights[label_idx] = total_samples / (num_classes * count)
+        
+    class_weights = class_weights / np.sum(class_weights) * num_classes
+    print(f"[INFO] Calculated balanced class weights: {class_weights}")
+    
     model = FallacyDetectionModel(model_name, num_labels=len(label_map))
-    trainer = Trainer(model, train_loader, dev_loader, device=device)
+    trainer = Trainer(model, train_loader, dev_loader, device=device, class_weights=class_weights)
     
     checkpoint_path = f"models/detection_{model_name.split('/')[-1]}.pt"
     
