@@ -17,7 +17,12 @@ class Trainer:
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.device = device
-        self.optimizer = AdamW(self.model.parameters(), lr=2e-5)
+        # Lower learning rate to 1e-5 for DeBERTa stability. Use PythonAdamW on MPS to bypass PyTorch kernel bugs.
+        if self.device == "mps":
+            from src.optimizer import PythonAdamW
+            self.optimizer = PythonAdamW(self.model.parameters(), lr=1e-5)
+        else:
+            self.optimizer = AdamW(self.model.parameters(), lr=1e-5)
 
     def train_epoch(self):
         self.model.train()
@@ -30,7 +35,17 @@ class Trainer:
             
             outputs = self.model(input_ids, attention_mask=attention_mask, labels=labels)
             loss = outputs.loss
+            
+            # Check for NaN immediately
+            if torch.isnan(loss):
+                print("\n[CRITICAL] NaN loss detected! Halting training immediately to prevent weight corruption.")
+                return float('nan')
+                
             loss.backward()
+            
+            # Gradient clipping to prevent exploding gradients
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+            
             self.optimizer.step()
             total_loss += loss.item()
         return total_loss / len(self.train_loader)
@@ -67,7 +82,7 @@ class Trainer:
         torch.save(self.model.state_dict(), path)
         print(f"Model saved to {path}")
 
-def train_detection(model_name, train_path, dev_path, test_path, epochs=3, batch_size=16):
+def train_detection(model_name, train_path, dev_path, test_path, epochs=3, batch_size=16, device=None):
     from src.data_loader import get_dataloaders
     from src.model import FallacyDetectionModel
     
@@ -76,7 +91,7 @@ def train_detection(model_name, train_path, dev_path, test_path, epochs=3, batch
     )
     
     model = FallacyDetectionModel(model_name, num_labels=len(label_map))
-    trainer = Trainer(model, train_loader, dev_loader)
+    trainer = Trainer(model, train_loader, dev_loader, device=device)
     
     checkpoint_path = f"models/detection_{model_name.split('/')[-1]}.pt"
     
@@ -101,7 +116,7 @@ def train_detection(model_name, train_path, dev_path, test_path, epochs=3, batch
     print(f"Test Loss: {test_loss:.4f} | Test F1: {test_f1:.4f}")
     print(test_report)
 
-def train_generation(model_name, train_path, dev_path, test_path, epochs=3, batch_size=8):
+def train_generation(model_name, train_path, dev_path, test_path, epochs=3, batch_size=8, device=None):
     from src.data_loader import get_generation_dataloaders
     from src.model import FallacyGenerationModel
     
@@ -110,7 +125,7 @@ def train_generation(model_name, train_path, dev_path, test_path, epochs=3, batc
     )
     
     model = FallacyGenerationModel(model_name, model_type="causal")
-    trainer = Trainer(model, train_loader, dev_loader)
+    trainer = Trainer(model, train_loader, dev_loader, device=device)
     
     checkpoint_path = f"models/generation_{model_name.split('/')[-1]}.pt"
     

@@ -13,6 +13,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=16, help="Training batch size")
     parser.add_argument("--epochs", type=int, default=3, help="Number of training epochs")
     parser.add_argument("--fallacy", type=str, help="Target fallacy for CTG (generation stage)")
+    parser.add_argument("--device", type=str, default=None, help="Device to run on (e.g. cpu, mps, cuda)")
     
     args = parser.parse_args()
     
@@ -41,7 +42,8 @@ def main():
             args.model, 
             train_csv, dev_csv, test_csv, 
             epochs=args.epochs, 
-            batch_size=args.batch_size
+            batch_size=args.batch_size,
+            device=args.device
         )
 
     elif args.stage == "generate":
@@ -51,7 +53,8 @@ def main():
             model_name,
             train_csv, dev_csv, test_csv,
             epochs=args.epochs,
-            batch_size=args.batch_size if args.batch_size <= 8 else 8 # GPT-2 is larger
+            batch_size=args.batch_size if args.batch_size <= 8 else 8, # GPT-2 is larger
+            device=args.device
         )
 
     elif args.stage == "evaluate":

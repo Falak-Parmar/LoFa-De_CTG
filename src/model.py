@@ -9,6 +9,19 @@ class FallacyDetectionModel(nn.Module):
     def __init__(self, model_name="microsoft/deberta-v3-base", num_labels=9):
         super(FallacyDetectionModel, self).__init__()
         self.model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=num_labels)
+        # Force the model to full float32 precision to prevent MPS/CPU numeric issues
+        self.model = self.model.to(torch.float32)
+        # Re-initialize the classifier weights safely in float32
+        if hasattr(self.model, "classifier"):
+            if hasattr(self.model.classifier, "weight") and self.model.classifier.weight is not None:
+                torch.nn.init.normal_(self.model.classifier.weight, mean=0.0, std=0.02)
+                torch.nn.init.zeros_(self.model.classifier.bias)
+            elif hasattr(self.model.classifier, "out_proj"):
+                # For RoBERTa custom classification heads
+                torch.nn.init.normal_(self.model.classifier.dense.weight, mean=0.0, std=0.02)
+                torch.nn.init.zeros_(self.model.classifier.dense.bias)
+                torch.nn.init.normal_(self.model.classifier.out_proj.weight, mean=0.0, std=0.02)
+                torch.nn.init.zeros_(self.model.classifier.out_proj.bias)
         
     def forward(self, input_ids, attention_mask, labels=None):
         return self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)

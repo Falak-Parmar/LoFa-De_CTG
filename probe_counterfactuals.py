@@ -1,12 +1,11 @@
+import argparse
 import os
 import torch
 import pandas as pd
 from transformers import AutoTokenizer
 from src.model import FallacyDetectionModel
 
-# Target model details
-MODEL_NAME = "microsoft/deberta-v3-base"
-MODEL_PATH = "models/detection_deberta-v3-base.pt"
+# Default configurations (can be overridden via CLI)
 TRAIN_CSV = "data/processed/train_processed.csv"
 
 def get_label_map(train_csv):
@@ -105,21 +104,28 @@ def format_input(comment_text):
     return f"Title: General Discussion | Parent:  | Comment: {comment_text}"
 
 def main():
-    if not os.path.exists(MODEL_PATH):
-        print(f"Error: Trained model weights not found at {MODEL_PATH}")
-        print("Please train the model first using: python3 main.py --stage detect --epochs 1")
+    parser = argparse.ArgumentParser(description="Probe logical fallacy model counterfactuals")
+    parser.add_argument("--model", type=str, default="roberta-base", help="Model name (e.g. roberta-base, microsoft/deberta-v3-base)")
+    args = parser.parse_args()
+    
+    model_name = args.model
+    model_path = f"models/detection_{model_name.split('/')[-1]}.pt"
+    
+    if not os.path.exists(model_path):
+        print(f"Error: Trained model weights not found at {model_path}")
+        print(f"Please train the model first using: python3 main.py --stage detect --model {model_name} --epochs 1")
         return
 
     print("Loading label map...")
     label_map, inv_label_map = get_label_map(TRAIN_CSV)
     num_labels = len(label_map)
 
-    print("Loading tokenizer and model...")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    model = FallacyDetectionModel(MODEL_NAME, num_labels=num_labels)
+    print(f"Loading tokenizer and model for {model_name}...")
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = FallacyDetectionModel(model_name, num_labels=num_labels)
     
     # Load state dict
-    state_dict = torch.load(MODEL_PATH, map_location="cpu")
+    state_dict = torch.load(model_path, map_location="cpu")
     model.load_state_dict(state_dict)
     model.eval()
     
@@ -171,7 +177,7 @@ def main():
     
     with open(artifact_path, "w") as f:
         f.write("# Logical Fallacy Detection: Counterfactual Probing Report\n\n")
-        f.write(f"This report assesses the robustness of the fine-tuned `{MODEL_NAME}` model against lexical shortcuts and structural variations.\n\n")
+        f.write(f"This report assesses the robustness of the fine-tuned `{model_name}` model against lexical shortcuts and structural variations.\n\n")
         f.write(f"### Robustness Score: **{robustness_score:.2f}%** ({correct_count}/{total_count} passed)\n\n")
         f.write("## Detailed Test Results\n\n")
         f.write("| Result | Category | Description | Text | Expected | Predicted |\n")
