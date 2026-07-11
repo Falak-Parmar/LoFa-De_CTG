@@ -3,6 +3,7 @@ from torch.optim import AdamW
 from tqdm import tqdm
 from sklearn.metrics import classification_report, f1_score
 import os
+import numpy as np
 
 class Trainer:
     def __init__(self, model, train_loader, val_loader, device=None, class_weights=None):
@@ -90,6 +91,69 @@ class Trainer:
         torch.save(self.model.state_dict(), path)
         print(f"Model saved to {path}")
 
+    def calibrate_threshold(self, val_loader, none_idx):
+        self.model.eval()
+        all_probs = []
+        all_labels = []
+        
+        with torch.no_grad():
+            for batch in tqdm(val_loader, desc="Calibrating"):
+                input_ids = batch['input_ids'].to(self.device)
+                attention_mask = batch['attention_mask'].to(self.device)
+                labels = batch['labels'].to(self.device)
+                outputs = self.model(input_ids, attention_mask=attention_mask)
+                probs = torch.nn.functional.softmax(outputs.logits, dim=1)
+                all_probs.append(probs.cpu())
+                all_labels.extend(labels.cpu().numpy())
+                
+        all_probs = torch.cat(all_probs, dim=0)
+        all_labels = np.array(all_labels)
+        
+        # Grid search
+        thresholds = np.arange(0.1, 0.9, 0.02)
+        best_threshold = 0.0
+        best_f1 = 0.0
+        
+        fallacy_probs = all_probs.clone()
+        fallacy_probs[:, none_idx] = -1.0
+        best_fallacy_probs, best_fallacy_indices = torch.max(fallacy_probs, dim=1)
+        
+        for t in thresholds:
+            preds = torch.where(best_fallacy_probs >= t, best_fallacy_indices, torch.tensor(none_idx))
+            f1 = f1_score(all_labels, preds.numpy(), average='macro')
+            if f1 > best_f1:
+                best_f1 = f1
+                best_threshold = t
+                
+        return best_threshold, best_f1
+
+    def evaluate_calibrated(self, loader, threshold, none_idx):
+        self.model.eval()
+        all_preds = []
+        all_labels = []
+        
+        with torch.no_grad():
+            for batch in tqdm(loader, desc="Calibrated Evaluating"):
+                input_ids = batch['input_ids'].to(self.device)
+                attention_mask = batch['attention_mask'].to(self.device)
+                labels = batch['labels'].to(self.device)
+                
+                outputs = self.model(input_ids, attention_mask=attention_mask)
+                probs = torch.nn.functional.softmax(outputs.logits, dim=1)
+                
+                fallacy_probs = probs.clone()
+                fallacy_probs[:, none_idx] = -1.0
+                best_fallacy_probs, best_fallacy_indices = torch.max(fallacy_probs, dim=1)
+                
+                preds = torch.where(best_fallacy_probs >= threshold, best_fallacy_indices, torch.tensor(none_idx, device=self.device))
+                
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
+                
+        f1 = f1_score(all_labels, all_preds, average='macro')
+        report = classification_report(all_labels, all_preds, zero_division=0)
+        return f1, report
+
 def train_detection(model_name, train_path, dev_path, test_path, epochs=3, batch_size=16, device=None):
     from src.data_loader import get_dataloaders
     from src.model import FallacyDetectionModel
@@ -134,12 +198,26 @@ def train_detection(model_name, train_path, dev_path, test_path, epochs=3, batch
         print(f"Epoch {epoch+1}/{epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Val F1: {val_f1:.4f}")
         print(val_report)
         
-    print("Testing on Test Set:")
+    print("Testing on Test Set (Uncalibrated):")
     if trainer.device == "mps":
         torch.mps.empty_cache()
     test_loss, test_f1, test_report = trainer.evaluate(test_loader)
-    print(f"Test Loss: {test_loss:.4f} | Test F1: {test_f1:.4f}")
+    print(f"Test Loss: {test_loss:.4f} | Test F1 (Uncalibrated): {test_f1:.4f}")
     print(test_report)
+    
+    # Run Threshold Calibration automatically
+    none_idx = label_map.get("none", None)
+    if none_idx is not None:
+        print("\n" + "="*60)
+        print("          THRESHOLD CALIBRATION & EVALUATION")
+        print("="*60)
+        best_threshold, best_val_f1 = trainer.calibrate_threshold(dev_loader, none_idx)
+        print(f"🏆 Optimal Fallacy Threshold Found on Val Set: {best_threshold:.3f} (Val F1: {best_val_f1:.4f})")
+        
+        print(f"\nEvaluating Test Set with Calibrated Threshold (T = {best_threshold:.3f}):")
+        cal_test_f1, cal_test_report = trainer.evaluate_calibrated(test_loader, best_threshold, none_idx)
+        print(f"Calibrated Test F1: {cal_test_f1:.4f}")
+        print(cal_test_report)
 
 def train_generation(model_name, train_path, dev_path, test_path, epochs=3, batch_size=8, device=None):
     from src.data_loader import get_generation_dataloaders

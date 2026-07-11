@@ -62,7 +62,7 @@ def main():
         from transformers import AutoTokenizer
         import torch
 
-        if "deberta" in args.model:
+        if "deberta" in args.model or "roberta" in args.model:
             # Classification inference
             tokenizer = AutoTokenizer.from_pretrained(args.model)
             model = FallacyDetectionModel(args.model, num_labels=9)
@@ -73,14 +73,28 @@ def main():
             
             sample_text = input("Enter text to analyze: ")
             inputs = tokenizer(sample_text, return_tensors="pt", truncation=True, padding=True)
+            
+            import pandas as pd
+            import torch.nn.functional as F
+            unique_labels = sorted(pd.read_csv(train_csv)['fallacy'].unique())
+            none_idx = unique_labels.index("none")
+            
             with torch.no_grad():
                 outputs = model(**inputs)
-                pred = torch.argmax(outputs.logits, dim=1).item()
-            
-            # Map pred back to label (sorted alphabetically as in data_loader)
-            import pandas as pd
-            unique_labels = sorted(pd.read_csv(train_csv)['fallacy'].unique())
-            print(f"Predicted Fallacy: {unique_labels[pred]}")
+                probs = F.softmax(outputs.logits, dim=1)[0]
+                
+                # Apply Threshold Calibration (T = 0.700)
+                fallacy_probs = probs.clone()
+                fallacy_probs[none_idx] = -1.0
+                best_fallacy_idx = fallacy_probs.argmax().item()
+                best_fallacy_prob = fallacy_probs[best_fallacy_idx].item()
+                
+                if best_fallacy_prob >= 0.700:
+                    pred = best_fallacy_idx
+                else:
+                    pred = none_idx
+                    
+            print(f"Predicted Fallacy: {unique_labels[pred]} (Fallacy Confidence: {best_fallacy_prob:.4f})")
 
         elif "gpt2" in args.model or "t5" in args.model:
             # Generation inference
