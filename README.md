@@ -19,6 +19,25 @@ This repository explores whether neural networks can truly detect logical fallac
 
 ---
 
+## 📝 Progress & Analysis Summary (Stage 1)
+
+Our Stage 1 milestone audit (detailed locally in `notes/fallacy_detection_report.md`) provides three critical validations:
+
+### 1. Empirical Verification
+If the network were incapable of recognizing logical fallacies, performance on our 9-class dataset would be close to random noise (~11.1% accuracy). By fine-tuning the model using **Inverse-Frequency Class Weighting**, the classifier achieved a **78.87% Macro F1 score**. This confirms that the model has successfully mapped the statistical features characterizing different fallacy styles.
+
+### 2. Semantic Generalization (Synonym Swaps)
+To prove the model generalizes semantically rather than relying on exact word memorization, we ran counterfactual Synonym Swap tests:
+*   Replacing *"tradition"* with *"age-old custom"* and *"routinely practiced"* successfully preserved the correct `appeal to tradition` classification.
+*   Replacing *"Dr. Smith"* with *"the most prominent expert in the field"* successfully preserved the `appeal to authority` classification.
+
+### 3. Fluency vs. Reasoning Gap
+The model's robustness suite failures provide empirical evidence of the gap between fluency and reasoning:
+*   **Valid Inversions:** The model failed on structurally valid arguments that contained fallacy-associated words. For example, it misclassified *"Dr. Smith supported the theory with ten years of experimental data"* (a valid empirical citation) as `appeal to authority`.
+*   The model recognizes superficial rhetorical structures and linguistic patterns, but lacks the formal reasoning logic to separate valid evidence from fallacious reasoning.
+
+---
+
 ## 📂 Project Structure
 
 *   `data/`: Contains raw (`.json`) and processed (`.csv`) splits of the CoCoLoFa dataset.
@@ -28,42 +47,7 @@ This repository explores whether neural networks can truly detect logical fallac
     *   `model.py`: Model wrappers for Sequence Classification and Causal/Seq2Seq language modeling.
     *   `trainer.py`: Custom training and evaluation logic with class-weighting and MPS fallback mechanisms.
 *   `notebooks/`: Jupyter notebooks for exploratory data analysis (EDA) and prototyping.
-*   `notes/`: Markdown files detailing model logs, progress updates, and milestone reports.
-*   `models/`: (Local only) Saved model checkpoints (`.pt` files).
+*   `notes/`: (Ignored locally) Markdown files detailing model logs, progress updates, and milestone reports.
+*   `models/`: (Ignored locally) Saved model checkpoints (`.pt` files).
 *   `probe_counterfactuals.py`: Automated testing suite validating model robustness against synonym swaps and distractors.
 *   `main.py`: Command-line entry point to orchestrate stages of the project.
-
----
-
-## 🚀 How to Run
-
-### 1. Installation
-Install project dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-### 2. Preprocess Data
-To clean the raw dataset and extract comments:
-```bash
-PYTHONPATH=. python3 main.py --stage preprocess
-```
-
-### 3. Train Fallacy Classifier (Stage 1)
-To train the logical fallacy classification model:
-```bash
-PYTHONPATH=. python3 main.py --stage detect --model roberta-base --epochs 3 --batch_size 16
-```
-*Note: Due to PyTorch macOS MPS backend bugs with AdamW, training will automatically run stably on the CPU.*
-
-### 4. Run Counterfactual Probing
-To test a trained classification model against logical inversions and synonym swaps:
-```bash
-PYTHONPATH=. python3 probe_counterfactuals.py --model roberta-base
-```
-
-### 5. Classification Inference
-Run inference interactively on custom text using a trained model:
-```bash
-PYTHONPATH=. python3 main.py --stage evaluate --model roberta-base
-```
