@@ -21,13 +21,11 @@ This repository explores whether neural networks can truly detect logical fallac
 
 ## 📝 Progress & Analysis Summary (Stage 1)
 
-Our Stage 1 milestone audit (detailed locally in `notes/fallacy_detection_report.md`) provides three critical validations:
-
 ### 1. Empirical Verification
-If the network were incapable of recognizing logical fallacies, performance on our 9-class dataset would be close to random noise (~11.1% accuracy). By fine-tuning the model using **Inverse-Frequency Class Weighting**, the classifier achieved a **78.87% Macro F1 score**. This confirms that the model has successfully mapped the statistical features characterizing different fallacy styles.
+If the network were incapable of recognizing logical fallacies, performance on the 9-class dataset would be close to random noise (~11.1% accuracy). By fine-tuning the model using **Inverse-Frequency Class Weighting**, the classifier achieved a **78.87% Macro F1 score**. This confirms that the model has successfully mapped the statistical features characterizing different fallacy styles.
 
 ### 2. Semantic Generalization (Synonym Swaps)
-To prove the model generalizes semantically rather than relying on exact word memorization, we ran counterfactual Synonym Swap tests:
+To prove the model generalizes semantically rather than relying on exact word memorization, I used counterfactual Synonym Swap tests:
 *   Replacing *"tradition"* with *"age-old custom"* and *"routinely practiced"* successfully preserved the correct `appeal to tradition` classification.
 *   Replacing *"Dr. Smith"* with *"the most prominent expert in the field"* successfully preserved the `appeal to authority` classification.
 
