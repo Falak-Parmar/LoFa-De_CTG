@@ -53,3 +53,15 @@ The model's robustness suite failures provide empirical evidence of the gap betw
 *   `models/`: (Ignored locally) Saved model checkpoints (`.pt` files).
 *   `probe_counterfactuals.py`: Automated testing suite validating model robustness against synonym swaps and distractors.
 *   `main.py`: Command-line entry point to orchestrate stages of the project.
+
+## Trust & Transparency notes
+
+- **Source & Attribution**: Developed as an original machine learning project using the open-source Hugging Face Transformers library, PyTorch, and the CoCoLoFa logical fallacy dataset.
+- **Motive**: Created as an academic study to analyze and empirically document the limits of transformer-based classifiers when distinguishing between linguistic fluency and structured logical reasoning.
+- **Modifications**: Engineered class-balanced loss functions, calibrated decision thresholds, and wrote custom counterfactual synonym swap testing scripts.
+- **Limitations**:
+  - The model operates at sentence level and cannot detect fallacies distributed across larger contextual paragraphs or multi-turn dialogues.
+  - The classifier remains susceptible to false-positive classification on structurally valid arguments containing vocabulary associated with fallacies.
+  - Stage 2 (Controlled Text Generation) components are scaffolded but lack full evaluation benchmarks.
+- **Tooling & AI Usage**: AI coding assistants via the Antigravity CLI were utilized to generate the PyTorch training loop, formulate class weight calibration heuristics, and structure the test harness for counterfactual verification.
+
